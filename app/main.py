@@ -8,12 +8,16 @@ Single unified API for:
   - POST /api/audio/generate    (XTTS v2)
   - GET  /api/health            (System health + model status)
   - GET  /api/models            (Available models + VRAM)
+  - POST /api/shutdown           (Manual shutdown)
+  - GET  /api/idle-status        (Idle timer info)
 """
 
 from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+
+from starlette.requests import Request
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -35,6 +39,7 @@ from app.schemas import (
 )
 from app.services.audio_service import audio_service
 from app.services.image_service import image_service
+from app.services.idle_shutdown import idle_shutdown_service
 from app.services.model_manager import model_manager
 from app.services.text_service import text_service
 from app.services.video_service import video_service
@@ -74,10 +79,14 @@ async def lifespan(app: FastAPI):
     except ImportError:
         logger.warning("  GPU:     PyTorch not available")
 
+    # Start idle shutdown monitor
+    await idle_shutdown_service.start()
+
     yield
 
     # Shutdown
     logger.info("Shutting down...")
+    await idle_shutdown_service.stop()
     await image_service.close()
 
 
@@ -103,6 +112,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# =============================================================================
+# Activity Tracking Middleware (resets idle shutdown timer)
+# =============================================================================
+
+# Paths that do NOT count as "activity" (don't reset idle timer)
+_EXCLUDED_PATHS = {"/api/health", "/api/models", "/api/idle-status", "/docs", "/openapi.json"}
+
+
+@app.middleware("http")
+async def track_activity(request: Request, call_next):
+    """Reset idle shutdown timer on real API usage."""
+    if request.url.path not in _EXCLUDED_PATHS:
+        idle_shutdown_service.touch()
+    response = await call_next(request)
+    return response
 
 
 # =============================================================================
@@ -142,6 +168,21 @@ async def list_models():
             "model_offload_enabled": settings.enable_model_offload,
         },
     }
+
+
+@app.get("/api/idle-status", tags=["System"])
+async def idle_status():
+    """Check idle timer and auto-shutdown countdown."""
+    return idle_shutdown_service.get_status()
+
+
+@app.post("/api/shutdown", tags=["System"])
+async def manual_shutdown():
+    """Immediately stop the vast.ai instance to save costs."""
+    import asyncio
+    # Respond first, then shutdown
+    asyncio.get_event_loop().call_later(2.0, lambda: asyncio.ensure_future(idle_shutdown_service.force_shutdown()))
+    return {"status": "shutdown_initiated", "message": "Instance will stop in ~2 seconds"}
 
 
 # =============================================================================

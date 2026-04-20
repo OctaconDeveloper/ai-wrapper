@@ -56,6 +56,28 @@ class Settings(BaseSettings):
     max_loaded_models: int = Field(default=3, alias="MAX_LOADED_MODELS")
     enable_model_offload: bool = Field(default=True, alias="ENABLE_MODEL_OFFLOAD")
 
+    # --- Auto-Shutdown (cost saving for vast.ai) ---
+    idle_shutdown_enabled: bool = Field(
+        default=True,
+        alias="IDLE_SHUTDOWN_ENABLED",
+        description="Auto-stop instance after idle timeout",
+    )
+    idle_shutdown_minutes: int = Field(
+        default=30,
+        alias="IDLE_SHUTDOWN_MINUTES",
+        description="Minutes of inactivity before auto-shutdown",
+    )
+    vastai_api_key: str = Field(
+        default="",
+        alias="VASTAI_API_KEY",
+        description="Vast.ai API key for programmatic instance stop",
+    )
+    vastai_instance_id: str = Field(
+        default="",
+        alias="VASTAI_INSTANCE_ID",
+        description="Current vast.ai instance ID (auto-detected if empty)",
+    )
+
     class Config:
         env_file = ".env"
         populate_by_name = True
