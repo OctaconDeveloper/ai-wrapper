@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     max_loaded_models: int = Field(default=3, alias="MAX_LOADED_MODELS")
     enable_model_offload: bool = Field(default=True, alias="ENABLE_MODEL_OFFLOAD")
 
-    # --- Auto-Shutdown (cost saving for vast.ai) ---
+    # --- Auto-Shutdown (cost saving for per hour GPU) ---
     idle_shutdown_enabled: bool = Field(
         default=True,
         alias="IDLE_SHUTDOWN_ENABLED",
