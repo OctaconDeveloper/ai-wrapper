@@ -1,0 +1,16 @@
+# Ignore everything not needed in the Docker build context
+model-cache/
+outputs/
+*.gguf
+*.safetensors
+.git/
+.gitignore
+.env
+.env.local
+README.md
+docker-compose.yml
+docker-compose.override.yml
+.vscode/
+.idea/
+__pycache__/
+*.pyc
