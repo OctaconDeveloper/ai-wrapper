@@ -5,7 +5,7 @@ Pydantic schemas for all API request/response models.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional
+from typing import Optional, Any
 
 from pydantic import BaseModel, Field
 
@@ -21,11 +21,23 @@ class ModelStatus(str, Enum):
     ERROR = "error"
 
 
+class GPUInfo(BaseModel):
+    gpu_id: int
+    name: str
+    used_mb: float
+    total_mb: float
+    utilization: float
+
+class ComfyUIStatus(BaseModel):
+    gpu: int
+    status: str
+
 class HealthResponse(BaseModel):
     status: str = "ok"
-    models: dict[str, str] = {}
-    gpu_memory_used_mb: float = 0.0
-    gpu_memory_total_mb: float = 0.0
+    gpu_count: int
+    gpus: list[GPUInfo]
+    models: dict[str, Any]
+    comfyui: list[ComfyUIStatus]
 
 
 class ErrorResponse(BaseModel):

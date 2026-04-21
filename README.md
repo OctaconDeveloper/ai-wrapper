@@ -1,226 +1,229 @@
-# 🚀 Multi-Model AI Platform
+# 🚀 Multi-Model AI Platform (Multi-GPU Optimized)
 
-Unified API for uncensored AI generation — images, video, text, and audio — deployed on **vast.ai** via a single Docker container.
+Unified API for high-concurrency, uncensored AI generation — images, video, text, and audio. Optimized for **multi-GPU** deployments with prioritized task scheduling and smart VRAM management.
 
-## Models
-
-| Endpoint | Model | Type | VRAM |
-|:---|:---|:---|:---|
-| `/api/image/generate` | **SDXL 1.0** (via ComfyUI) | Text → Image | ~7 GB |
-| `/api/video/generate` | **Wan 2.1 T2V 1.3B** | Text → Video | ~6 GB |
-| `/api/video/generate` | **Wan 2.1 I2V 14B** | Image → Video | ~28 GB |
-| `/api/text/generate` | **Dolphin-Mixtral 8x7B** (GGUF Q4_K_M) | Text → Text | ~26 GB |
-| `/api/audio/generate` | **XTTS v2** | Text → Audio | ~2 GB |
-
-> **GPU Requirement**: A100 80GB or H100 80GB recommended.
+## 🌟 Key Features
+- **Multi-GPU Scaling**: Automatic load-balancing across available GPUs.
+- **Smart Priority Queue**: Text and Audio requests jump to the front of the line.
+- **Enterprise Security**: Header-based authentication (`x-m-token`).
+- **Lazy Loading**: Models are loaded on demand and evicted via LRU to optimize VRAM.
 
 ---
 
-## Quick Start
+## 🛠️ API Reference
 
-### Local (Docker Compose)
+> [!IMPORTANT]
+> **Authentication**: All `POST` requests require the `x-m-token` header.
 
-```bash
-# 1. Set your HuggingFace token
-export HF_TOKEN=hf_your_token_here
+### 🍱 System Endpoints
 
-# 2. Build and run
-docker compose up --build
-
-# 3. Wait for model downloads (first run takes ~30 min)
-# 4. API is live at http://localhost:8000
+#### `GET /api/health`
+Check system health, GPU memory, and ComfyUI instance status.
+**Response**:
+```json
+{
+  "status": "ok",
+  "gpu_count": 2,
+  "gpus": [
+    {
+      "gpu_id": 0,
+      "name": "NVIDIA GeForce RTX 4090",
+      "used_mb": 4012.5,
+      "total_mb": 24576.0,
+      "utilization": 16.3
+    }
+  ],
+  "models": {
+    "gpu_0": { "image": "loaded", "lstm": "loaded" }
+  },
+  "comfyui": [
+    { "gpu": 0, "status": "ok" },
+    { "gpu": 1, "status": "ok" }
+  ]
+}
 ```
 
-### Vast.ai Deployment
-
-```bash
-# 1. Build and push Docker image
-docker build -t yourusername/ai-multi-models:latest .
-docker push yourusername/ai-multi-models:latest
-
-# 2. On vast.ai:
-#    - Go to Templates → Create Template
-#    - Image: yourusername/ai-multi-models:latest
-#    - Launch Mode: Docker ENTRYPOINT
-#    - Ports: 8000
-#    - Disk Space: 200 GB (for model weights)
-#    - Environment: HF_TOKEN=hf_your_token
-#
-# 3. Search for A100 80GB instances → Rent
-# 4. Access via: https://<instance-id>.vast.ai:8000
+#### `GET /api/models`
+List current status (loaded/unloaded) of all models across all GPUs.
+**Response**:
+```json
+{
+  "models": {
+    "gpu_0": { "image": "loaded", "text": "unloaded" },
+    "gpu_1": { "video_t2v": "loading" }
+  },
+  "gpu_count": 2,
+  "config": { "max_loaded_per_gpu": 3 }
+}
 ```
 
----
-
-## API Reference
-
-### Health Check
-```bash
-curl http://localhost:8000/api/health
-```
-
-### Image Generation (SDXL)
-```bash
-curl -X POST http://localhost:8000/api/image/generate \
-  -H "Content-Type: application/json" \
-  -d '{
-    "prompt": "a cyberpunk cityscape at night, neon lights, 8k, masterpiece",
-    "negative_prompt": "blurry, low quality",
-    "width": 1024,
-    "height": 1024,
-    "steps": 25,
-    "cfg_scale": 7.0
-  }'
-```
-
-### Video Generation (Wan 2.1)
-```bash
-# Text-to-Video
-curl -X POST http://localhost:8000/api/video/generate \
-  -H "Content-Type: application/json" \
-  -d '{
-    "prompt": "a cat playing with a ball in slow motion",
-    "mode": "t2v",
-    "num_frames": 33,
-    "width": 480,
-    "height": 320
-  }'
-
-# Image-to-Video
-curl -X POST http://localhost:8000/api/video/generate \
-  -H "Content-Type: application/json" \
-  -d '{
-    "prompt": "the scene slowly comes to life, camera pans right",
-    "mode": "i2v",
-    "image_base64": "<base64-encoded-image>",
-    "num_frames": 33
-  }'
-```
-
-### Text Generation (Dolphin-Mixtral)
-```bash
-# Chat mode
-curl -X POST http://localhost:8000/api/text/generate \
-  -H "Content-Type: application/json" \
-  -d '{
-    "messages": [
-      {"role": "system", "content": "You are a helpful assistant."},
-      {"role": "user", "content": "Explain quantum computing in simple terms."}
-    ],
-    "max_tokens": 1024,
-    "temperature": 0.7
-  }'
-
-# Streaming (SSE)
-curl -X POST http://localhost:8000/api/text/generate \
-  -H "Content-Type: application/json" \
-  -d '{
-    "messages": [{"role": "user", "content": "Write a poem about AI."}],
-    "stream": true
-  }'
-```
-
-### Audio Generation (XTTS v2)
-```bash
-# Basic TTS
-curl -X POST http://localhost:8000/api/audio/generate \
-  -H "Content-Type: application/json" \
-  -d '{
-    "text": "Hello, welcome to the multi-model AI platform.",
-    "language": "en",
-    "speed": 1.0
-  }'
-
-# With voice cloning
-curl -X POST http://localhost:8000/api/audio/generate \
-  -H "Content-Type: application/json" \
-  -d '{
-    "text": "This is a cloned voice speaking.",
-    "language": "en",
-    "speaker_wav_base64": "<base64-encoded-wav>"
-  }'
+#### `GET /api/idle-status`
+Check the auto-shutdown timer and current idle duration.
+**Response**:
+```json
+{
+  "is_idle": true,
+  "idle_seconds": 120,
+  "shutdown_enabled": true,
+  "minutes_until_shutdown": 28.0
+}
 ```
 
 ---
 
-## Architecture
+### 💬 Text Generation
 
+#### `POST /api/text/lstm/generate`
+Ultra-fast, lightweight character-level generation (Highest Priority).
+**Request**:
+```json
+{
+  "prompt": "The future of AI is",
+  "max_tokens": 100
+}
 ```
-┌────────────────────────────────────────────────┐
-│              Docker Container                   │
-│                                                 │
-│  ┌─────────────────────────────────────────┐   │
-│  │          supervisord (PID 1)             │   │
-│  │                                         │   │
-│  │  ┌──────────────┐  ┌────────────────┐  │   │
-│  │  │   ComfyUI     │  │    FastAPI      │  │   │
-│  │  │  :8188 (int)  │  │   :8000 (ext)   │  │   │
-│  │  │              │  │                │  │   │
-│  │  │  SDXL 1.0    │  │  • /api/image  │──┤   │
-│  │  │              │  │  • /api/video  │  │   │
-│  │  └──────────────┘  │  • /api/text   │  │   │
-│  │                     │  • /api/audio  │  │   │
-│  │                     │  • /api/health │  │   │
-│  │                     └────────────────┘  │   │
-│  └─────────────────────────────────────────┘   │
-│                                                 │
-│  Models (lazy-loaded with LRU eviction):       │
-│  ├── SDXL 1.0 ──────────── via ComfyUI         │
-│  ├── Wan 2.1 T2V 1.3B ──── via diffusers       │
-│  ├── Wan 2.1 I2V 14B ───── via diffusers       │
-│  ├── Dolphin-Mixtral ────── via llama-cpp       │
-│  └── XTTS v2 ───────────── via TTS library     │
-└────────────────────────────────────────────────┘
+**Response**:
+```json
+{
+  "text": "The future of AI is bright and full of potential for humanity...",
+  "prompt_tokens": 10,
+  "completion_tokens": 40,
+  "total_tokens": 50,
+  "generation_time_seconds": 0.15,
+  "device_id": 0
+}
+```
+
+#### `POST /api/text/generate`
+High-quality generation via Dolphin-Mixtral 8x7B.
+**Request**:
+```json
+{
+  "messages": [{"role": "user", "content": "Write a haiku about GPUs."}],
+  "temperature": 0.7,
+  "max_tokens": 512
+}
+```
+**Response**:
+```json
+{
+  "text": "Silicon humming,\nParallel paths light the dark,\nMatrix blooms in fire.",
+  "prompt_tokens": 15,
+  "completion_tokens": 20,
+  "total_tokens": 35,
+  "generation_time_seconds": 2.1
+}
 ```
 
 ---
 
-## Environment Variables
+### 🖼️ Image Generation
 
-| Variable | Default | Description |
-|:---|:---|:---|
-| `HF_TOKEN` | — | HuggingFace token for gated models |
-| `API_PORT` | `8000` | FastAPI port |
-| `MIXTRAL_GPU_LAYERS` | `-1` | GPU layers (-1 = all) |
-| `MIXTRAL_CONTEXT_LENGTH` | `32768` | Context window size |
-| `MAX_LOADED_MODELS` | `3` | Max concurrent models in VRAM |
-| `ENABLE_MODEL_OFFLOAD` | `true` | CPU offload for video models |
-
-See `.env.example` for all variables.
+#### `POST /api/image/generate`
+High-resolution images via SDXL 1.0.
+**Request**:
+```json
+{
+  "prompt": "a futuristic forest with glowing mushrooms",
+  "width": 1024,
+  "height": 1024,
+  "steps": 25
+}
+```
+**Response**:
+```json
+{
+  "images": ["<base64_encoded_png_data>"],
+  "seed": 42,
+  "prompt": "a futuristic forest with glowing mushrooms",
+  "generation_time_seconds": 8.5
+}
+```
 
 ---
 
-## Project Structure
+### 🎬 Video Generation
 
+#### `POST /api/video/generate`
+Cinematic video via Wan 2.1 (T2V or I2V).
+**Request (T2V)**:
+```json
+{
+  "prompt": "a sunset over a digital ocean",
+  "mode": "t2v",
+  "num_frames": 33
+}
 ```
-ai-multi-models/
-├── Dockerfile                  # Production container
-├── docker-compose.yml          # Local development
-├── requirements.txt            # Python dependencies
-├── setup.sh                    # Container entrypoint
-├── supervisord.conf            # Process manager
-├── .env.example                # Environment template
-├── app/
-│   ├── main.py                 # FastAPI gateway (all routes)
-│   ├── config.py               # Settings (env vars)
-│   ├── schemas.py              # Request/response models
-│   └── services/
-│       ├── model_manager.py    # Lazy loader + VRAM manager
-│       ├── image_service.py    # SDXL via ComfyUI API
-│       ├── video_service.py    # Wan 2.1 T2V + I2V
-│       ├── text_service.py     # Dolphin-Mixtral (GGUF)
-│       └── audio_service.py    # XTTS v2 TTS
-├── comfyui/
-│   └── workflows/
-│       └── sdxl_txt2img.json   # ComfyUI API workflow
-└── scripts/
-    └── download_models.sh      # Model weight downloader
+**Response**:
+```json
+{
+  "video_base64": "<base64_encoded_mp4_data>",
+  "prompt": "a sunset over a digital ocean",
+  "mode": "t2v",
+  "num_frames": 33,
+  "generation_time_seconds": 45.2
+}
 ```
 
-## License
+---
 
-For personal/research use. Individual model licenses apply:
-- SDXL: CreativeML Open RAIL++-M
-- Wan 2.1: Apache 2.0
-- Dolphin-Mixtral: Apache 2.0
-- XTTS v2: Coqui Public Model License
+### 🔊 Audio Generation
+
+#### `POST /api/audio/generate`
+Neural TTS and Voice Cloning via XTTS v2.
+**Request**:
+```json
+{
+  "text": "Welcome to the future of multi-modal AI.",
+  "language": "en",
+  "speed": 1.0
+}
+```
+**Response**:
+```json
+{
+  "audio_base64": "<base64_encoded_wav_data>",
+  "text": "Welcome to the future of multi-modal AI.",
+  "language": "en",
+  "duration_seconds": 3.2,
+  "generation_time_seconds": 1.5
+}
+```
+
+---
+
+### 🛑 Administrative
+
+#### `POST /api/shutdown`
+Immediately trigger an instance stop (Vast.ai compatible). Requires `x-m-token`.
+**Response**:
+```json
+{
+  "status": "shutdown_initiated",
+  "message": "Instance will stop in ~2 seconds"
+}
+```
+
+---
+
+## 🏗️ Architecture
+
+```mermaid
+graph TD
+    Client[Client] -->|x-m-token| Auth[Auth Middleware]
+    Auth --> Dispatch[Smart Dispatcher]
+    
+    subgraph "Hardware Pool"
+    Dispatch --> GPU0[GPU 0: RTX 4090]
+    Dispatch --> GPU1[GPU 1: RTX 4090]
+    end
+    
+    subgraph "Services per GPU"
+    GPU0 --> SD0[SDXL Instance]
+    GPU0 --> LSTM0[LSTM Service]
+    GPU1 --> VID1[Video Service]
+    end
+```
+
+## 📜 License
+Personal and research use permitted. Respective model licenses (Apache 2.0, RAIL++-M) apply.

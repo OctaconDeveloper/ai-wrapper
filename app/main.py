@@ -5,6 +5,7 @@ Single unified API for:
   - POST /api/image/generate    (SDXL via ComfyUI)
   - POST /api/video/generate    (Wan 2.1 T2V / I2V)
   - POST /api/text/generate     (Dolphin-Mixtral 8x7B)
+  - POST /api/text/lstm/generate (Lightweight LSTM)
   - POST /api/audio/generate    (XTTS v2)
   - GET  /api/health            (System health + model status)
   - GET  /api/models            (Available models + VRAM)
@@ -44,13 +45,6 @@ from app.services.model_manager import model_manager
 from app.services.text_service import text_service
 from app.services.video_service import video_service
 from app.services.lstm_service import lstm_service
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
 from app.services.queue_service import queue_service, Priority
 
 # Configure logging
