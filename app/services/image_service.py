@@ -87,34 +87,32 @@ SDXL_WORKFLOW_TEMPLATE = {
 
 
 class ImageService:
-    """Handles text-to-image generation via ComfyUI + SDXL."""
+    """Handles text-to-image generation via dual ComfyUI instances."""
 
     def __init__(self):
-        self._client: Optional[httpx.AsyncClient] = None
-        self._is_ready = False
+        self._clients: dict[int, httpx.AsyncClient] = {}
+        self._is_ready: dict[int, bool] = {}
 
-    @property
-    def comfyui_url(self) -> str:
-        return settings.comfyui_url
-
-    async def _get_client(self) -> httpx.AsyncClient:
-        if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
-                base_url=self.comfyui_url,
+    async def _get_client(self, device_id: int) -> httpx.AsyncClient:
+        if device_id not in self._clients or self._clients[device_id].is_closed:
+            url = settings.get_comfyui_url(device_id)
+            self._clients[device_id] = httpx.AsyncClient(
+                base_url=url,
                 timeout=httpx.Timeout(300.0, connect=10.0),
             )
-        return self._client
+        return self._clients[device_id]
 
-    async def health_check(self) -> bool:
-        """Check if ComfyUI is responsive."""
+    async def health_check(self, device_id: int = 0) -> bool:
+        """Check if a specific ComfyUI instance is responsive."""
         try:
-            client = await self._get_client()
+            client = await self._get_client(device_id)
             resp = await client.get("/system_stats")
-            self._is_ready = resp.status_code == 200
-            return self._is_ready
+            ready = resp.status_code == 200
+            self._is_ready[device_id] = ready
+            return ready
         except Exception as e:
-            logger.warning(f"ComfyUI health check failed: {e}")
-            self._is_ready = False
+            logger.warning(f"ComfyUI GPU {device_id} health check failed: {e}")
+            self._is_ready[device_id] = False
             return False
 
     async def generate(
@@ -127,14 +125,11 @@ class ImageService:
         cfg_scale: float = 7.0,
         seed: int = -1,
         batch_size: int = 1,
+        device_id: int = 0, # Added device_id
     ) -> dict:
-        """
-        Generate images using SDXL via ComfyUI.
-
-        Returns dict with 'images' (list of base64 strings), 'seed', and timing info.
-        """
+        """Generate images using SDXL on a specific GPU's ComfyUI instance."""
         start_time = time.time()
-        client = await self._get_client()
+        client = await self._get_client(device_id)
 
         # Resolve seed
         if seed < 0:
@@ -161,26 +156,26 @@ class ImageService:
             "client_id": client_id,
         }
 
-        logger.info(f"Queueing SDXL generation: '{prompt[:80]}...' ({width}x{height}, {steps} steps)")
+        logger.info(f"Queueing SDXL on GPU {device_id}: '{prompt[:40]}...'")
 
         resp = await client.post("/prompt", json=payload)
         if resp.status_code != 200:
-            raise RuntimeError(f"ComfyUI prompt queue failed: {resp.status_code} — {resp.text}")
+            raise RuntimeError(f"ComfyUI prompt queue failed (GPU {device_id}): {resp.status_code} — {resp.text}")
 
         prompt_id = resp.json()["prompt_id"]
-        logger.info(f"Prompt queued: {prompt_id}")
 
         # Poll for completion
         images_b64 = await self._poll_and_retrieve(client, prompt_id)
 
         elapsed = time.time() - start_time
-        logger.info(f"Generation complete: {len(images_b64)} image(s) in {elapsed:.1f}s")
+        logger.info(f"Generation on GPU {device_id} complete: {len(images_b64)} image(s) in {elapsed:.1f}s")
 
         return {
             "images": images_b64,
             "seed": seed,
             "prompt": prompt,
             "generation_time_seconds": round(elapsed, 2),
+            "device_id": device_id,
         }
 
     async def _poll_and_retrieve(
@@ -223,7 +218,6 @@ class ImageService:
                 subfolder = img_info.get("subfolder", "")
                 img_type = img_info.get("type", "output")
 
-                # Download the image
                 params = {
                     "filename": filename,
                     "subfolder": subfolder,
@@ -241,8 +235,10 @@ class ImageService:
         return images_b64
 
     async def close(self):
-        if self._client and not self._client.is_closed:
-            await self._client.aclose()
+        for client in self._clients.values():
+            if not client.is_closed:
+                await client.aclose()
+        self._clients = {}
 
 
 # Global singleton

@@ -1,15 +1,10 @@
-"""
-Model Manager — handles lazy loading, GPU memory tracking, and model offloading.
-
-Models are loaded on first request and can be offloaded when VRAM is constrained.
-"""
-
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, Callable
 
 import torch
 
@@ -22,34 +17,39 @@ class ModelType(str, Enum):
     VIDEO_I2V = "video_i2v"
     TEXT = "text"
     AUDIO = "audio"
+    LSTM = "lstm"
 
 
 class ModelState:
-    """Tracks the state of a loaded model."""
+    """Tracks the state of a loaded model on a specific GPU."""
 
-    def __init__(self, name: str, model_type: ModelType):
+    def __init__(self, name: str, model_type: ModelType, device_id: int = 0):
         self.name = name
         self.model_type = model_type
+        self.device_id = device_id
         self.instance: Any = None
         self.is_loaded: bool = False
         self.is_loading: bool = False
         self.last_used: float = 0.0
         self.vram_estimate_mb: float = 0.0
         self.error: Optional[str] = None
+        self.unload_callback: Optional[Callable[[int], None]] = None
 
-    def mark_loaded(self, instance: Any, vram_mb: float = 0.0):
+    def mark_loaded(self, instance: Any, vram_mb: float = 0.0, unload_callback: Optional[Callable[[int], None]] = None):
         self.instance = instance
         self.is_loaded = True
         self.is_loading = False
         self.last_used = time.time()
         self.vram_estimate_mb = vram_mb
         self.error = None
+        self.unload_callback = unload_callback
 
     def mark_unloaded(self):
         self.instance = None
         self.is_loaded = False
         self.is_loading = False
         self.vram_estimate_mb = 0.0
+        self.unload_callback = None
 
     def mark_error(self, error: str):
         self.is_loading = False
@@ -62,36 +62,46 @@ class ModelState:
 
 class ModelManager:
     """
-    Manages lazy loading and VRAM for all models.
-    Uses LRU eviction when max_loaded_models is exceeded.
+    Manages lazy loading and VRAM for all models across multiple GPUs.
+    Supports model duplication (same model on multiple GPUs).
     """
 
-    def __init__(self, max_loaded_models: int = 3):
-        self.max_loaded_models = max_loaded_models
-        self._models: dict[ModelType, ModelState] = {}
-        self._lock = None  # Initialized lazily with asyncio lock
+    def __init__(self, max_loaded_per_gpu: int = 3):
+        self.max_loaded_per_gpu = max_loaded_per_gpu
+        # Key: (model_type, device_id)
+        self._models: dict[tuple[ModelType, int], ModelState] = {}
+        self._lock = asyncio.Lock()
+        self._device_count = torch.cuda.device_count() if torch.cuda.is_available() else 1
+        logger.info(f"ModelManager initialized with {self._device_count} GPU(s)")
 
-    def register(self, model_type: ModelType, name: str) -> ModelState:
-        """Register a model type for tracking."""
-        state = ModelState(name=name, model_type=model_type)
-        self._models[model_type] = state
-        logger.info(f"Registered model: {name} ({model_type.value})")
+    @property
+    def device_count(self) -> int:
+        return self._device_count
+
+    def register(self, model_type: ModelType, name: str, device_id: int = 0) -> ModelState:
+        """Register a model for tracking on a specific GPU."""
+        state = ModelState(name=name, model_type=model_type, device_id=device_id)
+        self._models[(model_type, device_id)] = state
+        logger.info(f"Registered model {name} on cuda:{device_id}")
         return state
 
-    def get_state(self, model_type: ModelType) -> Optional[ModelState]:
-        return self._models.get(model_type)
+    def get_state(self, model_type: ModelType, device_id: int = 0) -> Optional[ModelState]:
+        return self._models.get((model_type, device_id))
 
-    def get_all_states(self) -> dict[str, dict]:
-        """Return status of all registered models."""
+    def get_all_states(self) -> dict[str, Any]:
+        """Return status of all registered models across all GPUs."""
         result = {}
-        for mt, state in self._models.items():
+        for (mt, dev_id), state in self._models.items():
             status = "error" if state.error else (
                 "loading" if state.is_loading else (
                     "loaded" if state.is_loaded else "unloaded"
                 )
             )
-            result[mt.value] = {
+            key = f"{mt.value}_gpu{dev_id}"
+            result[key] = {
                 "name": state.name,
+                "model_type": mt.value,
+                "device_id": dev_id,
                 "status": status,
                 "vram_mb": state.vram_estimate_mb,
                 "last_used": state.last_used,
@@ -99,36 +109,70 @@ class ModelManager:
             }
         return result
 
-    def get_loaded_count(self) -> int:
-        return sum(1 for s in self._models.values() if s.is_loaded)
+    def get_loaded_count(self, device_id: int) -> int:
+        return sum(1 for (mt, dev), s in self._models.items() if dev == device_id and s.is_loaded)
 
-    def should_evict(self) -> bool:
-        """Check if we need to evict a model before loading a new one."""
-        return self.get_loaded_count() >= self.max_loaded_models
+    async def ensure_capacity(self, device_id: int, exclude_type: Optional[ModelType] = None):
+        """Evict LRU model on a specific GPU if max capacity is reached."""
+        async with self._lock:
+            while self.get_loaded_count(device_id) >= self.max_loaded_per_gpu:
+                # Find LRU candidate on this GPU
+                candidates = [
+                    (mt, s) for (mt, dev), s in self._models.items()
+                    if dev == device_id and s.is_loaded and mt != exclude_type
+                ]
+                
+                if not candidates:
+                    logger.warning(f"GPU {device_id} is full but no eviction candidates found (excluding {exclude_type})")
+                    break
+                
+                candidates.sort(key=lambda x: x[1].last_used)
+                mt_to_evict, state_to_evict = candidates[0]
+                
+                logger.info(f"Evicting {mt_to_evict.value} from GPU {device_id} to free capacity")
+                
+                if state_to_evict.unload_callback:
+                    try:
+                        # Call the service-provided unload logic
+                        state_to_evict.unload_callback(device_id)
+                    except Exception as e:
+                        logger.error(f"Error during unload callback for {mt_to_evict.value} on GPU {device_id}: {e}")
+                
+                # Cleanup
+                state_to_evict.mark_unloaded()
+                self.clear_gpu_cache(device_id)
 
-    def get_eviction_candidate(self, exclude: ModelType) -> Optional[ModelType]:
-        """Find the least recently used loaded model (LRU eviction)."""
-        candidates = [
-            (mt, s) for mt, s in self._models.items()
-            if s.is_loaded and mt != exclude
-        ]
-        if not candidates:
-            return None
-        # Sort by last_used ascending (oldest first)
-        candidates.sort(key=lambda x: x[1].last_used)
-        return candidates[0][0]
+    def find_best_gpu(self, model_type: ModelType) -> int:
+        """
+        Pick the best GPU for a task:
+        1. GPU where the model is already loaded.
+        2. GPU with the most free VRAM / least loaded models.
+        """
+        # Priority 1: Already loaded
+        for dev_id in range(self._device_count):
+            state = self.get_state(model_type, dev_id)
+            if state and state.is_loaded:
+                return dev_id
+        
+        # Priority 2: Least number of models currently loaded
+        counts = [(dev_id, self.get_loaded_count(dev_id)) for dev_id in range(self._device_count)]
+        counts.sort(key=lambda x: x[1])
+        return counts[0][0]
 
     @staticmethod
-    def get_gpu_memory_info() -> dict:
-        """Get current GPU memory usage."""
-        if not torch.cuda.is_available():
+    def get_gpu_memory_info(device_id: int = 0) -> dict:
+        """Get current GPU memory usage for a specific device."""
+        if not torch.cuda.is_available() or device_id >= torch.cuda.device_count():
             return {"used_mb": 0, "total_mb": 0, "free_mb": 0}
 
-        used = torch.cuda.memory_allocated() / (1024 ** 2)
-        cached = torch.cuda.memory_reserved() / (1024 ** 2)
-        total = torch.cuda.get_device_properties(0).total_mem / (1024 ** 2)
+        props = torch.cuda.get_device_properties(device_id)
+        # We use memory_allocated for "used" and memory_reserved for what torch holds
+        used = torch.cuda.memory_allocated(device_id) / (1024 ** 2)
+        cached = torch.cuda.memory_reserved(device_id) / (1024 ** 2)
+        total = props.total_mem / (1024 ** 2)
 
         return {
+            "device": props.name,
             "used_mb": round(used, 1),
             "cached_mb": round(cached, 1),
             "total_mb": round(total, 1),
@@ -136,12 +180,13 @@ class ModelManager:
         }
 
     @staticmethod
-    def clear_gpu_cache():
-        """Force clear CUDA memory cache."""
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()
-            logger.info("GPU cache cleared")
+    def clear_gpu_cache(device_id: int):
+        """Force clear CUDA memory cache for a specific device."""
+        if torch.cuda.is_available() and device_id < torch.cuda.device_count():
+            with torch.cuda.device(device_id):
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+            logger.info(f"GPU {device_id} cache cleared")
 
 
 # Global singleton

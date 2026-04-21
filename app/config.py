@@ -1,11 +1,8 @@
-"""
-Configuration module — centralizes all settings and model paths.
-Uses pydantic-settings for environment variable binding.
-"""
-
+import json
 from pathlib import Path
+from typing import Any
 from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic import Field, field_validator
 
 
 class Settings(BaseSettings):
@@ -14,8 +11,33 @@ class Settings(BaseSettings):
     # --- Server ---
     api_host: str = Field(default="0.0.0.0", alias="API_HOST")
     api_port: int = Field(default=8000, alias="API_PORT")
-    comfyui_port: int = Field(default=8188, alias="COMFYUI_PORT")
+    comfyui_ports: dict[int, int] = Field(
+        default={0: 8188, 1: 8189},
+        alias="COMFYUI_PORTS",
+        description="Mapping of GPU index to ComfyUI port",
+    )
     comfyui_host: str = Field(default="127.0.0.1", alias="COMFYUI_HOST")
+    api_tokens: list[str] = Field(default=[], alias="API_TOKENS")
+
+    @field_validator("api_tokens", mode="before")
+    @classmethod
+    def parse_api_tokens(cls, v: Any) -> list[str]:
+        if isinstance(v, str):
+            v_stripped = v.strip()
+            # Handle JSON-like array: ["a", "b"]
+            if v_stripped.startswith("[") and v_stripped.endswith("]"):
+                try:
+                    return json.loads(v_stripped)
+                except json.JSONDecodeError:
+                    logger.warning(f"Failed to parse API_TOKENS as JSON: {v_stripped}")
+            
+            # Fallback to comma-separated: a, b, c
+            if "," in v_stripped:
+                return [s.strip() for s in v_stripped.split(",") if s.strip()]
+            
+            # Single token
+            return [v_stripped] if v_stripped else []
+        return v
 
     # --- Paths ---
     models_dir: str = Field(default="/workspace/models", alias="MODELS_DIR")
@@ -52,6 +74,16 @@ class Settings(BaseSettings):
         alias="XTTS_MODEL",
     )
 
+    # --- Lightweight LSTM ---
+    lstm_model_path: str = Field(
+        default="/workspace/models/text/lightweight_lstm.pth",
+        alias="LSTM_MODEL_PATH",
+    )
+    lstm_embedding_dim: int = Field(default=256, alias="LSTM_EMBEDDING_DIM")
+    lstm_hidden_dim: int = Field(default=512, alias="LSTM_HIDDEN_DIM")
+    lstm_num_layers: int = Field(default=2, alias="LSTM_NUM_LAYERS")
+    lstm_vocab_size: int = Field(default=1000, alias="LSTM_VOCAB_SIZE")
+
     # --- GPU Memory Management ---
     max_loaded_models: int = Field(default=3, alias="MAX_LOADED_MODELS")
     enable_model_offload: bool = Field(default=True, alias="ENABLE_MODEL_OFFLOAD")
@@ -83,9 +115,15 @@ class Settings(BaseSettings):
         populate_by_name = True
         extra = "ignore"
 
+    def get_comfyui_url(self, device_id: int = 0) -> str:
+        """Get the ComfyUI URL for a specific GPU."""
+        port = self.comfyui_ports.get(device_id, 8188)
+        return f"http://{self.comfyui_host}:{port}"
+
     @property
     def comfyui_url(self) -> str:
-        return f"http://{self.comfyui_host}:{self.comfyui_port}"
+        """Legacy property for backward compatibility (defaults to GPU 0)."""
+        return self.get_comfyui_url(0)
 
     @property
     def sdxl_checkpoint_path(self) -> Path:

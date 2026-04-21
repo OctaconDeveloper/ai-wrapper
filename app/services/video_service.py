@@ -29,64 +29,64 @@ class VideoService:
     """Handles text-to-video and image-to-video via Wan 2.1."""
 
     def __init__(self):
-        self._t2v_pipe = None
-        self._i2v_pipe = None
-        self._t2v_state = model_manager.register(ModelType.VIDEO_T2V, "Wan 2.1 T2V 1.3B")
-        self._i2v_state = model_manager.register(ModelType.VIDEO_I2V, "Wan 2.1 I2V 14B")
+        # We track pipe instances per device since we support model duplication
+        self._t2v_pipes: dict[int, Any] = {}
+        self._i2v_pipes: dict[int, Any] = {}
 
-    def _load_t2v(self):
-        """Lazy-load the text-to-video pipeline."""
-        if self._t2v_pipe is not None:
-            self._t2v_state.touch()
-            return
+    def _load_t2v(self, device_id: int):
+        """Lazy-load the text-to-video pipeline on a specific GPU."""
+        state = model_manager.get_state(ModelType.VIDEO_T2V, device_id)
+        if not state:
+            state = model_manager.register(ModelType.VIDEO_T2V, f"Wan 2.1 T2V (GPU {device_id})", device_id)
 
-        logger.info(f"Loading Wan 2.1 T2V model: {settings.wan_t2v_model}")
-        self._t2v_state.is_loading = True
+        if state.instance is not None:
+            state.touch()
+            return state.instance
+
+        logger.info(f"Loading Wan 2.1 T2V model on cuda:{device_id}: {settings.wan_t2v_model}")
+        state.is_loading = True
 
         try:
             from diffusers import WanPipeline
 
-            # Check if we need to evict another model
-            if model_manager.should_evict():
-                candidate = model_manager.get_eviction_candidate(exclude=ModelType.VIDEO_T2V)
-                if candidate:
-                    self._evict_model(candidate)
-
-            self._t2v_pipe = WanPipeline.from_pretrained(
+            # Ensure capacity on this specific GPU
+            # Note: capacity check is handled by the queue service caller
+            
+            pipe = WanPipeline.from_pretrained(
                 settings.wan_t2v_model,
                 torch_dtype=torch.bfloat16,
             )
 
             if settings.enable_model_offload:
-                self._t2v_pipe.enable_model_cpu_offload()
+                pipe.enable_model_cpu_offload(gpu_id=device_id)
             else:
-                self._t2v_pipe.to("cuda")
+                pipe.to(f"cuda:{device_id}")
 
-            self._t2v_state.mark_loaded(self._t2v_pipe, vram_mb=6000)
-            logger.info("Wan 2.1 T2V loaded successfully")
+            state.mark_loaded(pipe, vram_mb=6000, unload_callback=self.unload)
+            logger.info(f"Wan 2.1 T2V loaded on GPU {device_id} successfully")
+            return pipe
 
         except Exception as e:
-            self._t2v_state.mark_error(str(e))
-            logger.error(f"Failed to load Wan T2V: {e}")
+            state.mark_error(str(e))
+            logger.error(f"Failed to load Wan T2V on GPU {device_id}: {e}")
             raise
 
-    def _load_i2v(self):
-        """Lazy-load the image-to-video pipeline."""
-        if self._i2v_pipe is not None:
-            self._i2v_state.touch()
-            return
+    def _load_i2v(self, device_id: int):
+        """Lazy-load the image-to-video pipeline on a specific GPU."""
+        state = model_manager.get_state(ModelType.VIDEO_I2V, device_id)
+        if not state:
+            state = model_manager.register(ModelType.VIDEO_I2V, f"Wan 2.1 I2V (GPU {device_id})", device_id)
 
-        logger.info(f"Loading Wan 2.1 I2V model: {settings.wan_i2v_model}")
-        self._i2v_state.is_loading = True
+        if state.instance is not None:
+            state.touch()
+            return state.instance
+
+        logger.info(f"Loading Wan 2.1 I2V model on cuda:{device_id}: {settings.wan_i2v_model}")
+        state.is_loading = True
 
         try:
             from diffusers import WanImageToVideoPipeline, AutoencoderKLWan
             from transformers import CLIPVisionModel
-
-            if model_manager.should_evict():
-                candidate = model_manager.get_eviction_candidate(exclude=ModelType.VIDEO_I2V)
-                if candidate:
-                    self._evict_model(candidate)
 
             # Load components
             image_encoder = CLIPVisionModel.from_pretrained(
@@ -100,7 +100,7 @@ class VideoService:
                 torch_dtype=torch.float32,
             )
 
-            self._i2v_pipe = WanImageToVideoPipeline.from_pretrained(
+            pipe = WanImageToVideoPipeline.from_pretrained(
                 settings.wan_i2v_model,
                 vae=vae,
                 image_encoder=image_encoder,
@@ -108,31 +108,27 @@ class VideoService:
             )
 
             if settings.enable_model_offload:
-                self._i2v_pipe.enable_model_cpu_offload()
+                pipe.enable_model_cpu_offload(gpu_id=device_id)
             else:
-                self._i2v_pipe.to("cuda")
+                pipe.to(f"cuda:{device_id}")
 
-            self._i2v_state.mark_loaded(self._i2v_pipe, vram_mb=28000)
-            logger.info("Wan 2.1 I2V loaded successfully")
+            state.mark_loaded(pipe, vram_mb=28000, unload_callback=self.unload)
+            logger.info(f"Wan 2.1 I2V loaded on GPU {device_id} successfully")
+            return pipe
 
         except Exception as e:
-            self._i2v_state.mark_error(str(e))
-            logger.error(f"Failed to load Wan I2V: {e}")
+            state.mark_error(str(e))
+            logger.error(f"Failed to load Wan I2V on GPU {device_id}: {e}")
             raise
 
-    def _evict_model(self, model_type: ModelType):
-        """Unload a model to free VRAM."""
-        logger.info(f"Evicting model: {model_type.value}")
-        if model_type == ModelType.VIDEO_T2V and self._t2v_pipe is not None:
-            del self._t2v_pipe
-            self._t2v_pipe = None
-            self._t2v_state.mark_unloaded()
-        elif model_type == ModelType.VIDEO_I2V and self._i2v_pipe is not None:
-            del self._i2v_pipe
-            self._i2v_pipe = None
-            self._i2v_state.mark_unloaded()
-
-        ModelManager.clear_gpu_cache()
+    def unload(self, device_id: int):
+        """Unload models from memory for a specific GPU."""
+        for mt in [ModelType.VIDEO_T2V, ModelType.VIDEO_I2V]:
+            state = model_manager.get_state(mt, device_id)
+            if state and state.instance is not None:
+                del state.instance
+                state.mark_unloaded()
+                logger.info(f"Wan 2.1 {mt.value} unloaded from GPU {device_id}")
 
     async def generate_t2v(
         self,
@@ -145,21 +141,25 @@ class VideoService:
         num_inference_steps: int = 30,
         seed: int = -1,
         fps: int = 16,
+        device_id: int = 0, # Added device_id
     ) -> dict:
         """Generate video from text prompt."""
         start_time = time.time()
 
-        # Lazy load
-        self._load_t2v()
+        # Capacity management and load
+        await model_manager.ensure_capacity(device_id, exclude_type=ModelType.VIDEO_T2V)
+        pipe = self._load_t2v(device_id)
 
         if seed < 0:
             seed = random.randint(0, 2**32 - 1)
 
-        generator = torch.Generator(device="cuda").manual_seed(seed)
+        generator = torch.Generator(device=f"cuda:{device_id}").manual_seed(seed)
 
-        logger.info(f"Generating T2V: '{prompt[:80]}...' ({num_frames} frames, {width}x{height})")
+        logger.info(f"Generating T2V on GPU {device_id}: '{prompt[:80]}...'")
 
-        output = self._t2v_pipe(
+        # Offload inference to thread
+        output = await asyncio.to_thread(
+            pipe,
             prompt=prompt,
             negative_prompt=negative_prompt,
             num_frames=num_frames,
@@ -170,11 +170,11 @@ class VideoService:
             generator=generator,
         )
 
-        # Export frames to MP4
-        video_b64 = self._frames_to_mp4_base64(output.frames[0], fps=fps)
+        # Export frames to MP4 (also in thread)
+        video_b64 = await asyncio.to_thread(self._frames_to_mp4_base64, output.frames[0], fps=fps)
 
         elapsed = time.time() - start_time
-        logger.info(f"T2V complete in {elapsed:.1f}s")
+        logger.info(f"T2V on GPU {device_id} complete in {elapsed:.1f}s")
 
         return {
             "video_base64": video_b64,
@@ -182,6 +182,7 @@ class VideoService:
             "mode": "t2v",
             "num_frames": num_frames,
             "generation_time_seconds": round(elapsed, 2),
+            "device_id": device_id,
         }
 
     async def generate_i2v(
@@ -196,13 +197,15 @@ class VideoService:
         num_inference_steps: int = 30,
         seed: int = -1,
         fps: int = 16,
+        device_id: int = 0, # Added device_id
     ) -> dict:
         """Generate video from image + text prompt."""
         start_time = time.time()
         from PIL import Image as PILImage
 
-        # Lazy load
-        self._load_i2v()
+        # Capacity management and load
+        await model_manager.ensure_capacity(device_id, exclude_type=ModelType.VIDEO_I2V)
+        pipe = self._load_i2v(device_id)
 
         if seed < 0:
             seed = random.randint(0, 2**32 - 1)
@@ -212,11 +215,13 @@ class VideoService:
         input_image = PILImage.open(io.BytesIO(img_bytes)).convert("RGB")
         input_image = input_image.resize((width, height))
 
-        generator = torch.Generator(device="cuda").manual_seed(seed)
+        generator = torch.Generator(device=f"cuda:{device_id}").manual_seed(seed)
 
-        logger.info(f"Generating I2V: '{prompt[:80]}...' ({num_frames} frames)")
+        logger.info(f"Generating I2V on GPU {device_id}: '{prompt[:80]}...'")
 
-        output = self._i2v_pipe(
+        # Offload inference to thread
+        output = await asyncio.to_thread(
+            pipe,
             prompt=prompt,
             image=input_image,
             negative_prompt=negative_prompt,
@@ -228,10 +233,10 @@ class VideoService:
             generator=generator,
         )
 
-        video_b64 = self._frames_to_mp4_base64(output.frames[0], fps=fps)
+        video_b64 = await asyncio.to_thread(self._frames_to_mp4_base64, output.frames[0], fps=fps)
 
         elapsed = time.time() - start_time
-        logger.info(f"I2V complete in {elapsed:.1f}s")
+        logger.info(f"I2V on GPU {device_id} complete in {elapsed:.1f}s")
 
         return {
             "video_base64": video_b64,
@@ -239,6 +244,7 @@ class VideoService:
             "mode": "i2v",
             "num_frames": num_frames,
             "generation_time_seconds": round(elapsed, 2),
+            "device_id": device_id,
         }
 
     @staticmethod
