@@ -16,14 +16,8 @@ services:
     container_name: ai-multi-models
     restart: unless-stopped
 
-    # GPU Access
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+    # Note: GPU acceleration (NVIDIA) is enabled via docker-compose.gpu.yml
+    # Run ./run.sh to automatically detect and enable GPU support.
 
     ports:
       - "8000:8000"   # FastAPI
