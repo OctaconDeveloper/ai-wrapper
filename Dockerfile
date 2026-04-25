@@ -26,6 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.11 \
     python3.11-dev \
     python3.11-venv \
+    aria2 \
     python3-pip \
     build-essential \
     cmake \
@@ -45,7 +46,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Set Python 3.11 as default
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 \
     && update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 \
-    && python -m pip install --upgrade pip setuptools wheel
+    && python -m pip install --upgrade pip setuptools wheel \
+    && python -m pip install hf_transfer huggingface_hub
 
 # ─────────────────────────────────────────────────────────────────
 # 2. Create workspace structure
