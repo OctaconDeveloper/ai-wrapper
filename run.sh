@@ -40,4 +40,4 @@ fi
 
 # 2. Run Docker Compose
 echo "🚀 Starting containers (Device: $DEVICE)"
-DEVICE=$DEVICE BASE_IMAGE=$BASE_IMAGE MIXTRAL_GPU_LAYERS=$GPU_LAYERS docker compose $COMPOSE_FILES up --build "$@"
+COMPOSE_BAKE=true DEVICE=$DEVICE BASE_IMAGE=$BASE_IMAGE MIXTRAL_GPU_LAYERS=$GPU_LAYERS docker compose $COMPOSE_FILES up --build "$@"
