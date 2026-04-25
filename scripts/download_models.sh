@@ -47,16 +47,16 @@ download_file() {
 # Download Tasks
 # ─────────────────────────────────────────────────────────────────
 
-# 1. SDXL (Image)
+# 1. SD 1.5 (Image - DreamShaper 8)
 task_image() {
-    download_file "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors" \
-                  "${COMFYUI_DIR}/models/checkpoints/sd_xl_base_1.0.safetensors"
+    download_file "https://huggingface.co/Lykon/DreamShaper/resolve/main/DreamShaper_8_pruned.safetensors" \
+                  "${COMFYUI_DIR}/models/checkpoints/DreamShaper_8.safetensors"
 }
 
-# 2. Dolphin-Mistral (Text)
+# 2. Llama 3.2 3B Abliterated (Text)
 task_text() {
-    download_file "https://huggingface.co/bartowski/Dolphin-2.9.4-Mistral-Nemo-12B-GGUF/resolve/main/Dolphin-2.9.4-Mistral-Nemo-12B-Q4_K_M.gguf" \
-                  "${MODELS_DIR}/llm/dolphin-2.9.4-mistral-nemo-12b-Q4_K_M.gguf"
+    download_file "https://huggingface.co/MaziyarPanahi/Llama-3.2-3B-Instruct-Abliterated-GGUF/resolve/main/Llama-3.2-3B-Instruct-Abliterated.Q4_K_M.gguf" \
+                  "${MODELS_DIR}/llm/Llama-3.2-3B-Instruct-Abliterated.Q4_K_M.gguf"
 }
 
 # 3. XTTS v2 (Audio)

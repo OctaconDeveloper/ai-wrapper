@@ -13,7 +13,7 @@ outputs/
 *.pth
 
 # Environment
-.env
+# .env
 .env.local
 
 # IDE

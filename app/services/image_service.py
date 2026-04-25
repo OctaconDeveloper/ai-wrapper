@@ -24,35 +24,35 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Default SDXL workflow template for ComfyUI API format
-SDXL_WORKFLOW_TEMPLATE = {
+# Default SD 1.5 workflow template for ComfyUI API format
+SD15_WORKFLOW_TEMPLATE = {
     "3": {
         "class_type": "KSampler",
         "inputs": {
-            "cfg": 7.0,
+            "cfg": 7.5,
             "denoise": 1.0,
             "latent_image": ["5", 0],
             "model": ["4", 0],
             "negative": ["7", 0],
             "positive": ["6", 0],
-            "sampler_name": "euler",
-            "scheduler": "normal",
+            "sampler_name": "dpmpp_2m",
+            "scheduler": "karras",
             "seed": 0,
-            "steps": 25,
+            "steps": 20,
         },
     },
     "4": {
         "class_type": "CheckpointLoaderSimple",
         "inputs": {
-            "ckpt_name": "sd_xl_base_1.0.safetensors",
+            "ckpt_name": "DreamShaper_8.safetensors",
         },
     },
     "5": {
         "class_type": "EmptyLatentImage",
         "inputs": {
             "batch_size": 1,
-            "height": 1024,
-            "width": 1024,
+            "height": 512,
+            "width": 512,
         },
     },
     "6": {
@@ -66,7 +66,7 @@ SDXL_WORKFLOW_TEMPLATE = {
         "class_type": "CLIPTextEncode",
         "inputs": {
             "clip": ["4", 1],
-            "text": "",
+            "text": "blurry, low quality, distorted, deformed, watermark, text",
         },
     },
     "8": {
@@ -118,16 +118,16 @@ class ImageService:
     async def generate(
         self,
         prompt: str,
-        negative_prompt: str = "blurry, low quality, distorted, deformed",
-        width: int = 1024,
-        height: int = 1024,
-        steps: int = 25,
-        cfg_scale: float = 7.0,
+        negative_prompt: str = "blurry, low quality, distorted, deformed, watermark, text",
+        width: int = 512,
+        height: int = 512,
+        steps: int = 20,
+        cfg_scale: float = 7.5,
         seed: int = -1,
         batch_size: int = 1,
         device_id: int = 0, # Added device_id
     ) -> dict:
-        """Generate images using SDXL on a specific GPU's ComfyUI instance."""
+        """Generate images using SD 1.5 on a specific GPU's ComfyUI instance."""
         start_time = time.time()
         client = await self._get_client(device_id)
 
@@ -136,7 +136,7 @@ class ImageService:
             seed = random.randint(0, 2**32 - 1)
 
         # Build workflow from template
-        workflow = json.loads(json.dumps(SDXL_WORKFLOW_TEMPLATE))
+        workflow = json.loads(json.dumps(SD15_WORKFLOW_TEMPLATE))
         workflow["3"]["inputs"]["seed"] = seed
         workflow["3"]["inputs"]["steps"] = steps
         workflow["3"]["inputs"]["cfg"] = cfg_scale

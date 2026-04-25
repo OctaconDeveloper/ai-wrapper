@@ -32,7 +32,7 @@ class TextService:
         device_str = model_manager.get_device_string(device_id)
         state = model_manager.get_state(ModelType.TEXT, device_id)
         if not state:
-            state = model_manager.register(ModelType.TEXT, f"Dolphin-Mistral-Nemo 12B ({device_str})", device_id)
+            state = model_manager.register(ModelType.TEXT, f"Llama 3.2 3B ({device_str})", device_id)
 
         if state.instance is not None:
             state.touch()
@@ -45,7 +45,7 @@ class TextService:
             state.mark_error(error_msg)
             raise FileNotFoundError(error_msg)
 
-        logger.info(f"Loading Dolphin-Mistral-Nemo GGUF on {device_str}: {settings.mixtral_model_path}")
+        logger.info(f"Loading Llama 3.2 3B GGUF on {device_str}: {settings.mixtral_model_path}")
         state.is_loading = True
 
         try:
@@ -68,8 +68,8 @@ class TextService:
                 main_gpu=device_id if is_cuda_available() else 0,
             )
 
-            state.mark_loaded(llm, vram_mb=26000, unload_callback=self.unload)
-            logger.info(f"Dolphin-Mixtral loaded on {device_str} successfully")
+            state.mark_loaded(llm, vram_mb=4000, unload_callback=self.unload)
+            logger.info(f"Llama 3.2 3B loaded on {device_str} successfully")
             return llm
 
         except Exception as e:
