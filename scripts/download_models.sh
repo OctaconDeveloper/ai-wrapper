@@ -55,8 +55,8 @@ fi
 MIXTRAL_PATH="${MODELS_DIR}/llm/dolphin-2.9.4-mistral-nemo-12b-Q4_K_M.gguf"
 if [ ! -s "$MIXTRAL_PATH" ]; then
     log_info "Downloading Dolphin-Mistral-Nemo 12B (Q4_K_M)..."
-    wget -q --show-progress -O "$MIXTRAL_PATH" \
-        "https://huggingface.co/bartowski/dolphin-2.9.4-mistral-nemo-12b-GGUF/resolve/main/dolphin-2.9.4-mistral-nemo-12b-Q4_K_M.gguf"
+    wget --continue --show-progress -O "$MIXTRAL_PATH" \
+        "https://huggingface.co/bartowski/Dolphin-2.9.4-Mistral-Nemo-12B-GGUF/resolve/main/Dolphin-2.9.4-Mistral-Nemo-12B-Q4_K_M.gguf"
     log_info "Mistral-Nemo download complete ($(du -h "$MIXTRAL_PATH" | cut -f1))"
 else
     log_info "Mistral-Nemo GGUF already exists, skipping"
