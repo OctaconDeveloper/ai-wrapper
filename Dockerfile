@@ -3,12 +3,12 @@
 #
 # Single container running:
 #   - ComfyUI (SDXL image generation) on port 8188 (internal)
-#   - FastAPI (unified API gateway) on port 45701 (exposed)
+#   - FastAPI (unified API gateway) on port 8000 (exposed)
 #
 # Managed by supervisord.
 #
 # Build:  docker build -t ai-multi-models .
-# Run:    docker run --gpus all -p 45701:45701 -v ./model-cache:/workspace/models ai-multi-models
+# Run:    docker run --gpus all -p 8000:8000 -v ./model-cache:/workspace/models ai-multi-models
 # =============================================================================
 
 ARG BASE_IMAGE=ubuntu:22.04
@@ -116,7 +116,7 @@ RUN chmod +x ./setup.sh ./scripts/download_models.sh ./scripts/run_comfyui.sh
 # 8. Environment variables (defaults)
 # ─────────────────────────────────────────────────────────────────
 ENV API_HOST=0.0.0.0
-ENV API_PORT=45701
+ENV API_PORT=8000
 ENV COMFYUI_PORT=8188
 ENV COMFYUI_HOST=127.0.0.1
 ENV MODELS_DIR=/workspace/models
@@ -134,7 +134,7 @@ ENV ENABLE_MODEL_OFFLOAD=true
 # ─────────────────────────────────────────────────────────────────
 # 9. Expose ports and set entrypoint
 # ─────────────────────────────────────────────────────────────────
-EXPOSE 45701 8188
+EXPOSE 8000 8188
 
 
 # Entrypoint: downloads models (if needed) then starts supervisord

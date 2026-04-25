@@ -10,7 +10,7 @@ class Settings(BaseSettings):
 
     # --- Server ---
     api_host: str = Field(default="0.0.0.0", alias="API_HOST")
-    api_port: int = Field(default=45701, alias="API_PORT")
+    api_port: int = Field(default=8000, alias="API_PORT")
     comfyui_ports: dict[int, int] = Field(
         default={0: 8188, 1: 8189},
         alias="COMFYUI_PORTS",

@@ -4,7 +4,7 @@ import time
 import json
 import sys
 
-BASE_URL = "http://localhost:45701/api"
+BASE_URL = "http://localhost:8000/api"
 
 # Authentication (Use the first token from .env for testing)
 API_TOKEN = "185ba88fbe26b6d75efc33c919a31fb0a1f229b67e9c0fed"
