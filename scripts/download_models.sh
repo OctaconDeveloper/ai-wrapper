@@ -99,21 +99,15 @@ pid_text=$!
 task_image &
 pid_image=$!
 
-# Audio is usually fast, run it too
-task_audio &
-pid_audio=$!
-
-log_info "Waiting for essential models (Text/Image/Audio) to complete..."
-wait $pid_text $pid_image $pid_audio
+log_info "Waiting for essential models (Text & Image) to complete..."
+wait $pid_text $pid_image
 
 log_info "✅ Essential models ready! Launching API services..."
 
-# Now start Video in the background and DO NOT wait for it
-if [ "$SKIP_VIDEO" != "true" ]; then
-    log_warn "Video models will continue downloading in the background."
-    # Run in background with nohup to survive shell exit
-    nohup bash -c "export MODELS_DIR=$MODELS_DIR; $(declare -f download_file); $(declare -f task_video); task_video" > /workspace/video_download.log 2>&1 &
-fi
+# Now start Audio and Video in the background and DO NOT wait for them
+log_warn "Audio and Video models will continue downloading/caching in the background."
+# Run in background with nohup to survive shell exit
+nohup bash -c "export MODELS_DIR=$MODELS_DIR; $(declare -f download_file); $(declare -f task_audio); $(declare -f task_video); task_audio; task_video" > /workspace/background_tasks.log 2>&1 &
 
 echo "============================================="
 echo "  Core Platform Ready! "

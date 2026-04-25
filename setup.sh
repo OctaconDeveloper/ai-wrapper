@@ -50,6 +50,7 @@ fi
 # ─────────────────────────────────────────────────────────────────
 echo "[SETUP] Running model download script..."
 bash "${APP_ROOT}/scripts/download_models.sh"
+echo "[SETUP] Model download script finished with code $?"
 
 # ─────────────────────────────────────────────────────────────────
 # 4. Create log directory
