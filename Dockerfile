@@ -37,6 +37,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1-mesa-glx \
     libglib2.0-0 \
     supervisor \
+    ninja-build \
+    pkg-config \
+    libopenblas-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Set Python 3.11 as default
@@ -74,6 +77,7 @@ RUN if [ "$DEVICE" = "cuda" ]; then \
 # ─────────────────────────────────────────────────────────────────
 # 4. Install llama-cpp-python
 # ─────────────────────────────────────────────────────────────────
+RUN python3 -m pip install --no-cache-dir scikit-build-core
 RUN if [ "$DEVICE" = "cuda" ]; then \
     CMAKE_ARGS="-DGGML_CUDA=on" FORCE_CMAKE=1 python3 -m pip install --no-cache-dir llama-cpp-python==0.3.8; \
     else \

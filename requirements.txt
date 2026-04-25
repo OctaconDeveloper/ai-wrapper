@@ -21,7 +21,7 @@ imageio==2.37.0
 imageio-ffmpeg==0.5.1
 
 # --- Text Generation (Mixtral GGUF) ---
-llama-cpp-python==0.3.8
+# (Installed via Dockerfile to handle CUDA/CPU flags)
 
 # --- Audio Generation (XTTS v2) ---
 TTS==0.22.0
