@@ -114,7 +114,7 @@ class VideoService:
             else:
                 pipe.to(device_str)
 
-            state.mark_loaded(pipe, vram_mb=28000, unload_callback=self.unload)
+            state.mark_loaded(pipe, vram_mb=245701, unload_callback=self.unload)
             logger.info(f"Wan 2.1 I2V loaded on GPU {device_id} successfully")
             return pipe
 
