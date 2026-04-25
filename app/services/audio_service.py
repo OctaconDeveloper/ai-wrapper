@@ -19,7 +19,7 @@ from typing import Optional
 import numpy as np
 
 from app.config import settings
-from app.services.model_manager import ModelType, model_manager, ModelManager
+from app.services.model_manager import ModelType, model_manager, ModelManager, is_cuda_available
 
 logger = logging.getLogger(__name__)
 
@@ -37,31 +37,34 @@ class AudioService:
 
     def _load_model(self, device_id: int):
         """Lazy-load XTTS v2 model on a specific GPU."""
+        device_str = model_manager.get_device_string(device_id)
         state = model_manager.get_state(ModelType.AUDIO, device_id)
         if not state:
-            state = model_manager.register(ModelType.AUDIO, f"XTTS v2 (GPU {device_id})", device_id)
+            state = model_manager.register(ModelType.AUDIO, f"XTTS v2 ({device_str})", device_id)
 
         if state.instance is not None:
             state.touch()
             return state.instance
 
-        logger.info(f"Loading XTTS v2 on cuda:{device_id}: {settings.xtts_model}")
+        logger.info(f"Loading XTTS v2 on {device_str}: {settings.xtts_model}")
         state.is_loading = True
 
         try:
             from TTS.api import TTS
 
-            # Use GPU for synthesis
-            tts = TTS(model_name=settings.xtts_model, gpu=True)
+            # Use GPU for synthesis if available
+            gpu_available = is_cuda_available()
+            tts = TTS(model_name=settings.xtts_model, gpu=gpu_available)
+            
             # Pin to specific device if supported by the library
             if hasattr(tts, "to"):
-                tts.to(f"cuda:{device_id}")
+                tts.to(device_str)
 
             # Create a default speaker reference (silent WAV)
             self._ensure_default_speaker()
 
             state.mark_loaded(tts, vram_mb=2000, unload_callback=self.unload)
-            logger.info(f"XTTS v2 loaded on GPU {device_id} successfully")
+            logger.info(f"XTTS v2 loaded on {device_str} successfully")
             return tts
 
         except Exception as e:

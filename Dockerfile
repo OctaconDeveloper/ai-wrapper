@@ -11,7 +11,8 @@
 # Run:    docker run --gpus all -p 8000:8000 -v ./model-cache:/workspace/models ai-multi-models
 # =============================================================================
 
-FROM nvidia/cuda:12.4.1-devel-ubuntu22.04
+ARG BASE_IMAGE=ubuntu:22.04
+FROM ${BASE_IMAGE}
 
 # Prevent interactive prompts during apt
 ENV DEBIAN_FRONTEND=noninteractive
@@ -26,6 +27,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.11-dev \
     python3.11-venv \
     python3-pip \
+    build-essential \
+    cmake \
     git \
     wget \
     curl \
@@ -45,39 +48,50 @@ RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
 # 2. Create workspace structure
 # ─────────────────────────────────────────────────────────────────
 RUN mkdir -p /workspace/models/llm \
-             /workspace/models/video \
-             /workspace/models/audio \
-             /workspace/outputs \
-             /workspace/app-root \
-             /var/log/supervisor
+    /workspace/models/video \
+    /workspace/models/audio \
+    /workspace/outputs \
+    /workspace/app-root \
+    /var/log/supervisor
 
 WORKDIR /workspace/app-root
 
 # ─────────────────────────────────────────────────────────────────
-# 3. Install PyTorch with CUDA 12.4
+# 3. Build Arguments & PyTorch Installation
 # ─────────────────────────────────────────────────────────────────
-RUN pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
-    --index-url https://download.pytorch.org/whl/cu124
+ARG DEVICE=cpu
+ENV DEVICE=${DEVICE}
+
+RUN echo "Building for device: ${DEVICE}"
+
+# Install PyTorch based on device
+RUN if [ "$DEVICE" = "cuda" ]; then \
+    python3 -m pip install --no-cache-dir torch==2.5.1+cu124 torchvision==0.20.1+cu124 torchaudio==2.5.1+cu124 --index-url https://download.pytorch.org/whl/cu124; \
+    else \
+    python3 -m pip install --no-cache-dir torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cpu; \
+    fi
 
 # ─────────────────────────────────────────────────────────────────
-# 4. Install llama-cpp-python with CUDA support
+# 4. Install llama-cpp-python
 # ─────────────────────────────────────────────────────────────────
-ENV CMAKE_ARGS="-DGGML_CUDA=on"
-ENV FORCE_CMAKE=1
-RUN pip install llama-cpp-python==0.3.8
+RUN if [ "$DEVICE" = "cuda" ]; then \
+    CMAKE_ARGS="-DGGML_CUDA=on" FORCE_CMAKE=1 python3 -m pip install --no-cache-dir llama-cpp-python==0.3.8; \
+    else \
+    python3 -m pip install --no-cache-dir llama-cpp-python==0.3.8; \
+    fi
 
 # ─────────────────────────────────────────────────────────────────
 # 5. Install Python dependencies
 # ─────────────────────────────────────────────────────────────────
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+RUN python3 -m pip install --no-cache-dir -r requirements.txt
 
 # ─────────────────────────────────────────────────────────────────
 # 6. Clone and install ComfyUI
 # ─────────────────────────────────────────────────────────────────
 RUN git clone https://github.com/comfyanonymous/ComfyUI.git /workspace/ComfyUI \
     && cd /workspace/ComfyUI \
-    && pip install -r requirements.txt
+    && python3 -m pip install --no-cache-dir -r requirements.txt
 
 # ─────────────────────────────────────────────────────────────────
 # 7. Copy application code
@@ -90,7 +104,7 @@ COPY setup.sh ./setup.sh
 COPY .env.example ./.env
 
 # Make scripts executable
-RUN chmod +x ./setup.sh ./scripts/download_models.sh
+RUN chmod +x ./setup.sh ./scripts/download_models.sh ./scripts/run_comfyui.sh
 
 # ─────────────────────────────────────────────────────────────────
 # 8. Environment variables (defaults)

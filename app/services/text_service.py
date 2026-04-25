@@ -13,8 +13,9 @@ import random
 import time
 from typing import AsyncGenerator, Optional
 
+import torch
 from app.config import settings
-from app.services.model_manager import ModelType, model_manager, ModelManager
+from app.services.model_manager import ModelType, model_manager, ModelManager, is_cuda_available
 
 logger = logging.getLogger(__name__)
 
@@ -28,43 +29,52 @@ class TextService:
 
     def _load_model(self, device_id: int):
         """Lazy-load the GGUF model on a specific GPU."""
+        device_str = model_manager.get_device_string(device_id)
         state = model_manager.get_state(ModelType.TEXT, device_id)
         if not state:
-            state = model_manager.register(ModelType.TEXT, f"Dolphin-Mixtral 8x7B (GPU {device_id})", device_id)
+            state = model_manager.register(ModelType.TEXT, f"Dolphin-Mistral-Nemo 12B ({device_str})", device_id)
 
         if state.instance is not None:
             state.touch()
             return state.instance
 
-        logger.info(f"Loading Mixtral GGUF on cuda:{device_id}: {settings.mixtral_model_path}")
+        import os
+        if not os.path.exists(settings.mixtral_model_path):
+            error_msg = f"Model file NOT FOUND at: {settings.mixtral_model_path}. Please check your volume mounts."
+            logger.error(error_msg)
+            state.mark_error(error_msg)
+            raise FileNotFoundError(error_msg)
+
+        logger.info(f"Loading Dolphin-Mistral-Nemo GGUF on {device_str}: {settings.mixtral_model_path}")
         state.is_loading = True
 
         try:
             from llama_cpp import Llama
 
-            # Ensure GPU has room
-            # We don't await here because this is called in a sync-like lazy load,
-            # but ensure_capacity is async.
-            # FIX: We'll make sure the queue service handles capacity before calling this.
-            
+            # On Mac/CPU, disabling mmap can sometimes be more stable for very large files in Docker
+            use_mmap = True
+            if settings.mixtral_gpu_layers == 0 or not is_cuda_available():
+                logger.info("CPU mode detected: using 8 threads and disabling mmap for stability.")
+                use_mmap = False 
+
             llm = Llama(
                 model_path=settings.mixtral_model_path,
                 n_ctx=settings.mixtral_context_length,
-                n_gpu_layers=settings.mixtral_gpu_layers,
+                n_gpu_layers=settings.mixtral_gpu_layers if is_cuda_available() else 0,
                 n_threads=8,
-                verbose=False,
-                flash_attn=True,
-                # llama-cpp-python uses main_gpu to target a specific device
-                main_gpu=device_id,
+                verbose=True, # Enable verbose for better llama.cpp logs
+                use_mmap=use_mmap,
+                flash_attn=True if (settings.mixtral_gpu_layers > 0 and is_cuda_available()) else False,
+                main_gpu=device_id if is_cuda_available() else 0,
             )
 
             state.mark_loaded(llm, vram_mb=26000, unload_callback=self.unload)
-            logger.info(f"Dolphin-Mixtral loaded on GPU {device_id} successfully")
+            logger.info(f"Dolphin-Mixtral loaded on {device_str} successfully")
             return llm
 
         except Exception as e:
             state.mark_error(str(e))
-            logger.error(f"Failed to load Mixtral on GPU {device_id}: {e}")
+            logger.error(f"Failed to load Mixtral on {device_str}: {e}")
             raise
 
     async def generate(

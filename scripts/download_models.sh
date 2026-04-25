@@ -25,18 +25,22 @@ log_info()  { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-# Create directories
-mkdir -p "${MODELS_DIR}/llm"
-mkdir -p "${MODELS_DIR}/video"
-mkdir -p "${MODELS_DIR}/audio"
-mkdir -p "${COMFYUI_DIR}/models/checkpoints"
-mkdir -p "/workspace/outputs"
+# Ensure required directories exist
+log_info "Ensuring directories exist..."
+for dir in "${MODELS_DIR}/llm" "${MODELS_DIR}/video" "${MODELS_DIR}/audio" "${COMFYUI_DIR}/models/checkpoints" "/workspace/outputs"; do
+    if [ ! -d "$dir" ]; then
+        mkdir -p "$dir"
+        log_info "Created directory: $dir"
+    else
+        log_info "Directory already exists: $dir"
+    fi
+done
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. SDXL 1.0 Checkpoint (for ComfyUI)
 # ─────────────────────────────────────────────────────────────────────────────
 SDXL_PATH="${COMFYUI_DIR}/models/checkpoints/sd_xl_base_1.0.safetensors"
-if [ ! -f "$SDXL_PATH" ]; then
+if [ ! -s "$SDXL_PATH" ]; then
     log_info "Downloading SDXL 1.0 base checkpoint..."
     wget -q --show-progress -O "$SDXL_PATH" \
         "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors"
@@ -46,23 +50,23 @@ else
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2. Dolphin-Mixtral 8x7B GGUF (for text generation)
+# 2. Dolphin-Mistral-Nemo 12B GGUF (for text generation)
 # ─────────────────────────────────────────────────────────────────────────────
-MIXTRAL_PATH="${MODELS_DIR}/llm/dolphin-2.7-mixtral-8x7b.Q4_K_M.gguf"
-if [ ! -f "$MIXTRAL_PATH" ]; then
-    log_info "Downloading Dolphin-Mixtral 8x7B (Q4_K_M)..."
+MIXTRAL_PATH="${MODELS_DIR}/llm/dolphin-2.9.4-mistral-nemo-12b-Q4_K_M.gguf"
+if [ ! -s "$MIXTRAL_PATH" ]; then
+    log_info "Downloading Dolphin-Mistral-Nemo 12B (Q4_K_M)..."
     wget -q --show-progress -O "$MIXTRAL_PATH" \
-        "https://huggingface.co/TheBloke/dolphin-2.7-mixtral-8x7b-GGUF/resolve/main/dolphin-2.7-mixtral-8x7b.Q4_K_M.gguf"
-    log_info "Mixtral download complete ($(du -h "$MIXTRAL_PATH" | cut -f1))"
+        "https://huggingface.co/bartowski/dolphin-2.9.4-mistral-nemo-12b-GGUF/resolve/main/dolphin-2.9.4-mistral-nemo-12b-Q4_K_M.gguf"
+    log_info "Mistral-Nemo download complete ($(du -h "$MIXTRAL_PATH" | cut -f1))"
 else
-    log_info "Mixtral GGUF already exists, skipping"
+    log_info "Mistral-Nemo GGUF already exists, skipping"
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. Wan 2.1 T2V 1.3B (download via wget)
 # ─────────────────────────────────────────────────────────────────────────────
 WAN_T2V_DIR="${MODELS_DIR}/video/wan2.1-t2v-1.3b"
-if [ ! -d "${WAN_T2V_DIR}/transformer" ]; then
+if [ ! -s "${WAN_T2V_DIR}/transformer/diffusion_pytorch_model.safetensors" ]; then
     log_info "Downloading Wan 2.1 T2V 1.3B model files..."
     mkdir -p "${WAN_T2V_DIR}"
     WAN_T2V_BASE="https://huggingface.co/Wan-AI/Wan2.1-T2V-1.3B-Diffusers/resolve/main"
@@ -106,7 +110,7 @@ fi
 # 4. Wan 2.1 I2V 14B 480P (download via wget)
 # ─────────────────────────────────────────────────────────────────────────────
 WAN_I2V_DIR="${MODELS_DIR}/video/wan2.1-i2v-14b"
-if [ ! -d "${WAN_I2V_DIR}/transformer" ]; then
+if [ ! -s "${WAN_I2V_DIR}/transformer/diffusion_pytorch_model-00001-of-00006.safetensors" ]; then
     log_info "Downloading Wan 2.1 I2V 14B model files..."
     mkdir -p "${WAN_I2V_DIR}"
     WAN_I2V_BASE="https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-480P-Diffusers/resolve/main"
@@ -126,7 +130,7 @@ if [ ! -d "${WAN_I2V_DIR}/transformer" ]; then
     # Download all shards
     for i in $(seq -w 1 6); do
         SHARD="diffusion_pytorch_model-0000${i}-of-00006.safetensors"
-        if [ ! -f "${WAN_I2V_DIR}/transformer/${SHARD}" ]; then
+        if [ ! -s "${WAN_I2V_DIR}/transformer/${SHARD}" ]; then
             wget -q --show-progress -O "${WAN_I2V_DIR}/transformer/${SHARD}" \
                 "${WAN_I2V_BASE}/transformer/${SHARD}" || log_warn "Failed to download shard ${SHARD}"
         fi
@@ -157,7 +161,7 @@ fi
 # 5. XTTS v2 (auto-downloads via TTS library on first use, but we can pre-cache)
 # ─────────────────────────────────────────────────────────────────────────────
 log_info "Pre-caching XTTS v2 model..."
-python3 -c "
+CUDA_VISIBLE_DEVICES="" python3 -c "
 from TTS.api import TTS
 tts = TTS(model_name='tts_models/multilingual/multi-dataset/xtts_v2', gpu=False)
 print('XTTS v2 cached successfully')

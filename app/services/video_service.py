@@ -20,7 +20,7 @@ import torch
 import numpy as np
 
 from app.config import settings
-from app.services.model_manager import ModelManager, ModelType, model_manager
+from app.services.model_manager import ModelManager, ModelType, model_manager, is_cuda_available
 
 logger = logging.getLogger(__name__)
 
@@ -35,15 +35,16 @@ class VideoService:
 
     def _load_t2v(self, device_id: int):
         """Lazy-load the text-to-video pipeline on a specific GPU."""
+        device_str = model_manager.get_device_string(device_id)
         state = model_manager.get_state(ModelType.VIDEO_T2V, device_id)
         if not state:
-            state = model_manager.register(ModelType.VIDEO_T2V, f"Wan 2.1 T2V (GPU {device_id})", device_id)
+            state = model_manager.register(ModelType.VIDEO_T2V, f"Wan 2.1 T2V ({device_str})", device_id)
 
         if state.instance is not None:
             state.touch()
             return state.instance
 
-        logger.info(f"Loading Wan 2.1 T2V model on cuda:{device_id}: {settings.wan_t2v_model}")
+        logger.info(f"Loading Wan 2.1 T2V model on {device_str}: {settings.wan_t2v_model}")
         state.is_loading = True
 
         try:
@@ -57,10 +58,10 @@ class VideoService:
                 torch_dtype=torch.bfloat16,
             )
 
-            if settings.enable_model_offload:
+            if settings.enable_model_offload and is_cuda_available():
                 pipe.enable_model_cpu_offload(gpu_id=device_id)
             else:
-                pipe.to(f"cuda:{device_id}")
+                pipe.to(device_str)
 
             state.mark_loaded(pipe, vram_mb=6000, unload_callback=self.unload)
             logger.info(f"Wan 2.1 T2V loaded on GPU {device_id} successfully")
@@ -73,15 +74,16 @@ class VideoService:
 
     def _load_i2v(self, device_id: int):
         """Lazy-load the image-to-video pipeline on a specific GPU."""
+        device_str = model_manager.get_device_string(device_id)
         state = model_manager.get_state(ModelType.VIDEO_I2V, device_id)
         if not state:
-            state = model_manager.register(ModelType.VIDEO_I2V, f"Wan 2.1 I2V (GPU {device_id})", device_id)
+            state = model_manager.register(ModelType.VIDEO_I2V, f"Wan 2.1 I2V ({device_str})", device_id)
 
         if state.instance is not None:
             state.touch()
             return state.instance
 
-        logger.info(f"Loading Wan 2.1 I2V model on cuda:{device_id}: {settings.wan_i2v_model}")
+        logger.info(f"Loading Wan 2.1 I2V model on {device_str}: {settings.wan_i2v_model}")
         state.is_loading = True
 
         try:
@@ -107,10 +109,10 @@ class VideoService:
                 torch_dtype=torch.bfloat16,
             )
 
-            if settings.enable_model_offload:
+            if settings.enable_model_offload and is_cuda_available():
                 pipe.enable_model_cpu_offload(gpu_id=device_id)
             else:
-                pipe.to(f"cuda:{device_id}")
+                pipe.to(device_str)
 
             state.mark_loaded(pipe, vram_mb=28000, unload_callback=self.unload)
             logger.info(f"Wan 2.1 I2V loaded on GPU {device_id} successfully")
@@ -153,9 +155,9 @@ class VideoService:
         if seed < 0:
             seed = random.randint(0, 2**32 - 1)
 
-        generator = torch.Generator(device=f"cuda:{device_id}").manual_seed(seed)
+        generator = torch.Generator(device=model_manager.get_device_string(device_id)).manual_seed(seed)
 
-        logger.info(f"Generating T2V on GPU {device_id}: '{prompt[:80]}...'")
+        logger.info(f"Generating T2V on {model_manager.get_device_string(device_id)}: '{prompt[:80]}...'")
 
         # Offload inference to thread
         output = await asyncio.to_thread(
@@ -215,9 +217,9 @@ class VideoService:
         input_image = PILImage.open(io.BytesIO(img_bytes)).convert("RGB")
         input_image = input_image.resize((width, height))
 
-        generator = torch.Generator(device=f"cuda:{device_id}").manual_seed(seed)
+        generator = torch.Generator(device=model_manager.get_device_string(device_id)).manual_seed(seed)
 
-        logger.info(f"Generating I2V on GPU {device_id}: '{prompt[:80]}...'")
+        logger.info(f"Generating I2V on {model_manager.get_device_string(device_id)}: '{prompt[:80]}...'")
 
         # Offload inference to thread
         output = await asyncio.to_thread(

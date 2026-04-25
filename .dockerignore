@@ -1,8 +1,11 @@
 # Ignore everything not needed in the Docker build context
-model-cache/
 outputs/
+model-cache/
 *.gguf
 *.safetensors
+*.bin
+*.pt
+*.ckpt
 .git/
 .gitignore
 .env

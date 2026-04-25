@@ -13,6 +13,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        - DEVICE=${DEVICE:-cpu}
+        - BASE_IMAGE=${BASE_IMAGE:-ubuntu:22.04}
     container_name: ai-multi-models
     restart: unless-stopped
 
@@ -38,14 +41,15 @@ services:
       - MODELS_DIR=/workspace/models
       - COMFYUI_DIR=/workspace/ComfyUI
       - OUTPUT_DIR=/workspace/outputs
-      - MIXTRAL_MODEL_PATH=/workspace/models/llm/dolphin-2.7-mixtral-8x7b.Q4_K_M.gguf
+      - MIXTRAL_MODEL_PATH=/workspace/models/llm/dolphin-2.9.4-mistral-nemo-12b-Q4_K_M.gguf
       - MIXTRAL_CONTEXT_LENGTH=32768
-      - MIXTRAL_GPU_LAYERS=-1
+      - MIXTRAL_GPU_LAYERS=${MIXTRAL_GPU_LAYERS:-0}
       - WAN_T2V_MODEL=/workspace/models/video/wan2.1-t2v-1.3b
       - WAN_I2V_MODEL=/workspace/models/video/wan2.1-i2v-14b
       - XTTS_MODEL=tts_models/multilingual/multi-dataset/xtts_v2
       - MAX_LOADED_MODELS=3
       - ENABLE_MODEL_OFFLOAD=true
+      - COQUI_TOS_AGREED=1
 
     # Health check
     healthcheck:

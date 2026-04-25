@@ -21,13 +21,25 @@ COMFYUI_DIR="${WORKSPACE}/ComfyUI"
 MODELS_DIR="${WORKSPACE}/models"
 
 # ─────────────────────────────────────────────────────────────────
+# 0. Set Environment Flags based on DEVICE
+# ─────────────────────────────────────────────────────────────────
+if [ "$DEVICE" = "cpu" ]; then
+    echo "[SETUP] CPU mode detected. Setting flags..."
+    export COMFYUI_ARGS="--cpu"
+    export CUDA_VISIBLE_DEVICES=""
+else
+    echo "[SETUP] GPU mode detected."
+    export COMFYUI_ARGS=""
+fi
+
+# ─────────────────────────────────────────────────────────────────
 # 1. Verify ComfyUI exists (pre-installed in Dockerfile)
 # ─────────────────────────────────────────────────────────────────
 if [ ! -d "${COMFYUI_DIR}" ]; then
     echo "[SETUP] ComfyUI not found — cloning (fallback for volume mounts)..."
     git clone https://github.com/comfyanonymous/ComfyUI.git "${COMFYUI_DIR}"
     cd "${COMFYUI_DIR}"
-    pip install -r requirements.txt --quiet
+    python3 -m pip install -r requirements.txt --quiet
     echo "[SETUP] ComfyUI installed"
 else
     echo "[SETUP] ComfyUI found at ${COMFYUI_DIR}"
@@ -42,7 +54,7 @@ bash "${APP_ROOT}/scripts/download_models.sh"
 # ─────────────────────────────────────────────────────────────────
 # 4. Create log directory
 # ─────────────────────────────────────────────────────────────────
-mkdir -p /var/log/supervisor
+mkdir -p /var/log/supervisor /workspace/comfyui_user_0 /workspace/comfyui_user_1
 
 # ─────────────────────────────────────────────────────────────────
 # 5. Start supervisord (fires up ComfyUI + FastAPI)

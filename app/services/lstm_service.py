@@ -38,15 +38,16 @@ class LSTMService:
 
     def _load_model(self, device_id: int):
         """Lazy-load the LSTM model on a specific GPU."""
+        device_str = model_manager.get_device_string(device_id)
         state = model_manager.get_state(ModelType.LSTM, device_id)
         if not state:
-            state = model_manager.register(ModelType.LSTM, f"Lightweight LSTM (GPU {device_id})", device_id)
+            state = model_manager.register(ModelType.LSTM, f"Lightweight LSTM ({device_str})", device_id)
 
         if state.instance is not None:
             state.touch()
             return state.instance
 
-        logger.info(f"Loading LSTM on cuda:{device_id}: {settings.lstm_model_path}")
+        logger.info(f"Loading LSTM on {device_str}: {settings.lstm_model_path}")
         state.is_loading = True
 
         try:
@@ -60,23 +61,23 @@ class LSTMService:
             # Check for weights, otherwise initialize with dummy data for testing
             path = Path(settings.lstm_model_path)
             if path.exists():
-                model.load_state_dict(torch.load(path, map_location=f"cuda:{device_id}"))
+                model.load_state_dict(torch.load(path, map_location=device_str))
             else:
                 logger.warning(f"LSTM weights not found at {path}. Initializing with random weights.")
                 # Ensure directory exists
                 path.parent.mkdir(parents=True, exist_ok=True)
                 # We don't save here to avoid side effects, just use in-memory
 
-            model.to(f"cuda:{device_id}")
+            model.to(device_str)
             model.eval()
 
             state.mark_loaded(model, vram_mb=500, unload_callback=self.unload)
-            logger.info(f"LSTM loaded on GPU {device_id} successfully")
+            logger.info(f"LSTM loaded on {device_str} successfully")
             return model
 
         except Exception as e:
             state.mark_error(str(e))
-            logger.error(f"Failed to load LSTM on GPU {device_id}: {e}")
+            logger.error(f"Failed to load LSTM on {device_str}: {e}")
             raise
 
     async def generate(
@@ -104,7 +105,7 @@ class LSTMService:
         )
 
         elapsed = time.time() - start_time
-        logger.info(f"LSTM generation on GPU {device_id} complete in {elapsed:.3f}s")
+        logger.info(f"LSTM generation on {model_manager.get_device_string(device_id)} complete in {elapsed:.3f}s")
 
         return {
             "text": generated_text,
@@ -118,7 +119,7 @@ class LSTMService:
 
     def _sync_generate(self, model, prompt, max_tokens, temperature, device_id):
         """Synchronous character-level generation."""
-        device = f"cuda:{device_id}"
+        device = model_manager.get_device_string(device_id)
         input_ids = torch.tensor([[self._vocab.get(c, 0) for c in prompt]], device=device)
         
         generated = prompt

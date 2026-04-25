@@ -15,8 +15,12 @@ Single unified API for:
 
 from __future__ import annotations
 
+import os
 import logging
 from contextlib import asynccontextmanager
+
+# Automatically agree to Coqui TTS terms to prevent interactive prompts in Docker
+os.environ["COQUI_TOS_AGREED"] = "1"
 
 from starlette.requests import Request
 
@@ -41,7 +45,7 @@ from app.schemas import (
 from app.services.audio_service import audio_service
 from app.services.image_service import image_service
 from app.services.idle_shutdown import idle_shutdown_service
-from app.services.model_manager import model_manager
+from app.services.model_manager import model_manager, ModelType
 from app.services.text_service import text_service
 from app.services.video_service import video_service
 from app.services.lstm_service import lstm_service

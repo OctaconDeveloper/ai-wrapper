@@ -60,6 +60,13 @@ class ModelState:
         self.last_used = time.time()
 
 
+def is_cuda_available() -> bool:
+    """Robustly check for CUDA availability without throwing on CPU-only builds."""
+    try:
+        return torch.cuda.is_available()
+    except (AssertionError, RuntimeError, Exception):
+        return False
+
 class ModelManager:
     """
     Manages lazy loading and VRAM for all models across multiple GPUs.
@@ -71,12 +78,29 @@ class ModelManager:
         # Key: (model_type, device_id)
         self._models: dict[tuple[ModelType, int], ModelState] = {}
         self._lock = asyncio.Lock()
-        self._device_count = torch.cuda.device_count() if torch.cuda.is_available() else 1
-        logger.info(f"ModelManager initialized with {self._device_count} GPU(s)")
+        
+        # Improved device detection with safety wrappers
+        cuda_ok = is_cuda_available()
+        if cuda_ok:
+            try:
+                self._device_count = torch.cuda.device_count()
+            except Exception:
+                self._device_count = 1
+                cuda_ok = False
+        else:
+            self._device_count = 1 # Fallback to 1 "device" for CPU
+            
+        logger.info(f"ModelManager initialized with {self._device_count} {'GPU(s)' if cuda_ok else 'CPU'}")
 
     @property
     def device_count(self) -> int:
         return self._device_count
+
+    def get_device_string(self, device_id: int = 0) -> str:
+        """Return 'cuda:x' or 'cpu' based on availability."""
+        if is_cuda_available():
+            return f"cuda:{device_id}"
+        return "cpu"
 
     def register(self, model_type: ModelType, name: str, device_id: int = 0) -> ModelState:
         """Register a model for tracking on a specific GPU."""
@@ -162,31 +186,37 @@ class ModelManager:
     @staticmethod
     def get_gpu_memory_info(device_id: int = 0) -> dict:
         """Get current GPU memory usage for a specific device."""
-        if not torch.cuda.is_available() or device_id >= torch.cuda.device_count():
+        try:
+            if not is_cuda_available() or device_id >= torch.cuda.device_count():
+                return {"used_mb": 0, "total_mb": 0, "free_mb": 0}
+
+            props = torch.cuda.get_device_properties(device_id)
+            # We use memory_allocated for "used" and memory_reserved for what torch holds
+            used = torch.cuda.memory_allocated(device_id) / (1024 ** 2)
+            cached = torch.cuda.memory_reserved(device_id) / (1024 ** 2)
+            total = props.total_mem / (1024 ** 2)
+
+            return {
+                "device": props.name,
+                "used_mb": round(used, 1),
+                "cached_mb": round(cached, 1),
+                "total_mb": round(total, 1),
+                "free_mb": round(total - cached, 1),
+            }
+        except Exception:
             return {"used_mb": 0, "total_mb": 0, "free_mb": 0}
-
-        props = torch.cuda.get_device_properties(device_id)
-        # We use memory_allocated for "used" and memory_reserved for what torch holds
-        used = torch.cuda.memory_allocated(device_id) / (1024 ** 2)
-        cached = torch.cuda.memory_reserved(device_id) / (1024 ** 2)
-        total = props.total_mem / (1024 ** 2)
-
-        return {
-            "device": props.name,
-            "used_mb": round(used, 1),
-            "cached_mb": round(cached, 1),
-            "total_mb": round(total, 1),
-            "free_mb": round(total - cached, 1),
-        }
 
     @staticmethod
     def clear_gpu_cache(device_id: int):
         """Force clear CUDA memory cache for a specific device."""
-        if torch.cuda.is_available() and device_id < torch.cuda.device_count():
-            with torch.cuda.device(device_id):
-                torch.cuda.empty_cache()
-                torch.cuda.synchronize()
-            logger.info(f"GPU {device_id} cache cleared")
+        try:
+            if is_cuda_available() and device_id < torch.cuda.device_count():
+                with torch.cuda.device(device_id):
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+                logger.info(f"GPU {device_id} cache cleared")
+        except Exception:
+            pass
 
 
 # Global singleton
