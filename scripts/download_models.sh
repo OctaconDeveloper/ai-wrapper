@@ -55,8 +55,8 @@ task_image() {
 
 # 2. Llama 3.2 3B Abliterated (Text)
 task_text() {
-    download_file "https://huggingface.co/MaziyarPanahi/Llama-3.2-3B-Instruct-Abliterated-GGUF/resolve/main/Llama-3.2-3B-Instruct-Abliterated.Q4_K_M.gguf" \
-                  "${MODELS_DIR}/llm/Llama-3.2-3B-Instruct-Abliterated.Q4_K_M.gguf"
+    download_file "https://huggingface.co/MaziyarPanahi/Llama-3.2-3B-Instruct-abliterated-GGUF/resolve/main/Llama-3.2-3B-Instruct-abliterated.Q4_K_M.gguf" \
+                  "${MODELS_DIR}/llm/Llama-3.2-3B-Instruct-abliterated.Q4_K_M.gguf"
 }
 
 # 3. XTTS v2 (Audio)
