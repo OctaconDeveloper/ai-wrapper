@@ -79,7 +79,7 @@ RUN if [ "$DEVICE" = "cuda" ]; then \
 # ─────────────────────────────────────────────────────────────────
 RUN python3 -m pip install --no-cache-dir scikit-build-core
 RUN if [ "$DEVICE" = "cuda" ]; then \
-    CMAKE_ARGS="-DGGML_CUDA=on" CMAKE_BUILD_PARALLEL_LEVEL=2 FORCE_CMAKE=1 python3 -m pip install --no-cache-dir llama-cpp-python==0.3.8; \
+    CMAKE_ARGS="-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=89" CMAKE_BUILD_PARALLEL_LEVEL=$(nproc) FORCE_CMAKE=1 python3 -m pip install --no-cache-dir llama-cpp-python==0.3.8; \
     else \
     CMAKE_BUILD_PARALLEL_LEVEL=$(nproc) python3 -m pip install --no-cache-dir llama-cpp-python==0.3.8; \
     fi
